@@ -1,5 +1,16 @@
+import logging
+from datetime import datetime
+
 import streamlit as st
 from pawpal_system import Owner, Pet, Task, Scheduler
+from ai_assistant import render_ai_assistant
+
+logging.basicConfig(
+    filename="pawpal.log",
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 st.title("🐾 PawPal+")
@@ -7,6 +18,10 @@ st.title("🐾 PawPal+")
 # --- Session state init ---
 if "owner" not in st.session_state:
     st.session_state.owner = None
+
+# ── AI Assistant (pinned at the top so it's always reachable, no scrolling) ───
+render_ai_assistant()
+st.divider()
 
 # ── Owner Setup ────────────────────────────────────────────────────────────────
 st.subheader("Owner")
@@ -22,6 +37,7 @@ with col3:
 if st.button("Create Owner"):
     if st.session_state.owner is None:
         st.session_state.owner = Owner(name=owner_name, email=owner_email, phone=owner_phone)
+        logger.info("Owner created: name=%s", owner_name)
         st.success(f"Owner '{owner_name}' created!")
     else:
         st.info(f"Owner '{st.session_state.owner.name}' already exists.")
@@ -54,6 +70,7 @@ else:
     if st.button("Add Pet"):
         new_pet = Pet(name=pet_name, species=species, breed=breed, age=int(age), weight=float(weight))
         st.session_state.owner.add_pet(new_pet)
+        logger.info("Pet added: name=%s species=%s breed=%s", pet_name, species, breed)
         st.success(f"{pet_name} added!")
 
     if st.session_state.owner.pets:
@@ -85,10 +102,20 @@ else:
         frequency = st.selectbox("Frequency", ["daily", "weekly", "monthly"])
 
     if st.button("Add Task"):
-        target_pet = next(p for p in st.session_state.owner.pets if p.name == selected_pet)
-        new_task = Task(description=task_desc, time=task_time, frequency=frequency)
-        target_pet.add_task(new_task)
-        st.success(f"Task '{task_desc}' added to {selected_pet}!")
+        try:
+            datetime.strptime(task_time, "%I:%M %p")
+        except ValueError:
+            logger.warning("Rejected task with invalid time format: %r", task_time)
+            st.error(f"'{task_time}' isn't a valid time. Use the format 'H:MM AM/PM', e.g. '8:00 AM'.")
+        else:
+            target_pet = next(p for p in st.session_state.owner.pets if p.name == selected_pet)
+            new_task = Task(description=task_desc, time=task_time, frequency=frequency)
+            target_pet.add_task(new_task)
+            logger.info(
+                "Task added: pet=%s desc=%s time=%s freq=%s",
+                selected_pet, task_desc, task_time, frequency,
+            )
+            st.success(f"Task '{task_desc}' added to {selected_pet}!")
 
 st.divider()
 
@@ -137,6 +164,7 @@ else:
             st.write("")
             if st.button("Mark Done", key=f"done_{pet.name}"):
                 scheduler.complete_task(pet.name, task_to_complete)
+                logger.info("Task marked complete: pet=%s task=%s", pet.name, task_to_complete)
                 st.success(f"Marked '{task_to_complete}' complete for {pet.name}!")
                 st.rerun()
 

@@ -1,0 +1,37 @@
+# Model Card — PawPal+ AI Assistant
+
+This is my responsible-AI reflection for the AI Assistant feature added to PawPal+ (`ai_assistant.py`). It's separate from `README.md`'s design/testing write-up because this part is specifically about the assistant's limitations, misuse potential, and how I actually worked with an AI (Claude) to build it — not just what the feature does.
+
+## Limitations and Biases
+
+- **It's keyword matching, not real language understanding.** The assistant decides what a question is "about" by checking whether specific words appear in it (e.g. "pending," "conflict," a pet's name). This misfires on ambiguous phrasing — for example, "Is Mochi done with everything?" matches on the word "done" and answers about *completed* tasks specifically, instead of giving a direct yes/no about overall status. It's a truthful answer, just not always the most natural response to how the question was actually phrased.
+- **Pet-name recognition is exact-token matching.** A pet has to be referred to by its exact name as a whole word. Testing actually caught a real version of this bug: the tokenizer used to glue possessive `'s` onto a name (turning "Mochi's" into one token, `"mochi's"`), so it silently failed to recognize the pet in phrasing like "What are Mochi's tasks?" until I fixed the tokenizer. There could well be similar edge cases I haven't found (e.g. a pet named after a common English word like "Walk" would probably confuse the intent matcher).
+- **The retrieval fallback only catches literal word overlap.** If a question doesn't share any words with the underlying data, it won't find a match even if the answer genuinely exists — there's no synonym handling or semantic understanding, since there's no embedding model or LLM involved by design.
+- **No memory across questions.** Every question is answered independently; it can't handle a follow-up like "and Buddy?" after asking about Mochi, because it doesn't track conversation context.
+- **Its "knowledge" is only ever the current session.** It only knows what's currently in `st.session_state` (the owner/pets/tasks entered in that browser session) — it has no persistent history and forgets everything once the session ends. That's by design, but it does mean it can't answer anything about past sessions or data patterns over time.
+
+## Potential Misuse and Mitigations
+
+I don't think this specific assistant has a large misuse surface, mostly because of choices already made for other reasons, but it's worth spelling out:
+
+- **No prompt-injection risk in the traditional sense.** Because it's not an LLM, there's no way to talk it into ignoring its instructions or fabricating information — every answer is either a direct method call on real `Owner`/`Pet`/`Scheduler` data or a retrieved chunk of that same real data. A user can't type something like "pretend Mochi has 0 pending tasks" and get it echoed back as fact, since the assistant never treats the user's own text as a source of truth.
+- **No external network calls or API keys.** Nothing typed into the chat ever leaves the local machine, so there's no way to exfiltrate data through it, and no cost/rate-limit abuse surface like there would be with an API-backed version.
+- **Logging could leak sensitive input.** `pawpal.log` records the raw text of every question asked, in plain text, locally. If someone pasted something sensitive into the chat thinking it was private, it would sit in that log file. I'd fix this in a real deployment by not logging raw free-text input verbatim (logging just the matched intent/category instead) or by rotating/excluding the log from any shared location.
+- **Contact info is answerable on request.** Asking "who is the owner" returns the owner's email and phone number. That's fine for this single-user, local, no-login app, but if this were ever turned into a shared or hosted multi-user version, that would need real per-user authentication and data isolation before it'd be safe to expose that way — right now there's no login system at all, so it hasn't needed one, but it also means the app shouldn't be deployed anywhere multiple people share the same session.
+
+## Surprises During Reliability Testing
+
+- The biggest surprise was that **writing deliberate unit tests found a real bug that months of manually clicking through the UI never would have** — the possessive-tokenizer issue above. I'd only ever tested pet names typed plainly ("Mochi"), so the bug was invisible until I wrote a test using slightly different, more natural phrasing.
+- The second surprise was the opposite problem: **two real UI bugs were completely invisible to every automated test I ran**, including Streamlit's `AppTest` harness, which actually executes the app's script the way a browser would. A CSS `position: fixed` floating chat bubble silently failed to render at all, and later a `st.popover`-based version closed itself every time a message was submitted. Both passed every automated check because neither pytest nor `AppTest` evaluates real browser CSS or rendering behavior — they only surfaced from actually opening the running app and using it. That was a real lesson: "all tests passing" and "the feature actually works for a person using it" are not the same claim.
+
+## AI Collaboration
+
+I used Claude throughout this phase of the project — not just to write code, but to debug UI issues, design the retrieval/intent-matching approach, and review the feature against specific rubric requirements.
+
+### A helpful suggestion
+
+When the AI Assistant's floating chat widget started acting strangely (closing itself, requiring scrolling to see answers), instead of guessing at more CSS/JS fixes, Claude suggested actually running the app through Streamlit's `AppTest` testing harness to check the *underlying logic* (whether the panel's open/closed state actually survived a chat submission) before touching the UI again. That separated two different problems that had been getting confused with each other: the app's state-management logic was already correct, and the real bug was specifically how Streamlit rendered CSS and managed the built-in `st.popover` widget. Once that was clear, the actual fix (a custom session-state-driven panel instead of `st.popover`) was obvious. Testing the logic in isolation before touching the UI again saved a lot of guessing.
+
+### A flawed suggestion
+
+Claude's first attempt at making the AI Assistant into a floating chat bubble (fixed to the bottom-right corner of the screen, like a typical website chat widget) used plain CSS `position: fixed` targeting a Streamlit container by its key-based class name. It was presented as a working solution, but it didn't render at all — the button and panel were simply invisible. The actual cause, which Claude figured out afterward, was that Streamlit wraps its blocks in wrapper divs that use CSS `transform` for its rerun animations, and that silently changes what a `position: fixed` element is measured relative to, effectively clipping it off-screen instead of just repositioning it. It's a real, subtle CSS interaction, but the suggestion was still incorrect as given — it hadn't been verified against an actual running browser before being called done. The lesson for me was to actually go look at the running app myself rather than trust that a plausible-sounding CSS approach worked just because the code looked reasonable and no error was thrown.

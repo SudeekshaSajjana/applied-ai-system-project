@@ -1,0 +1,34 @@
+flowchart TD
+    U["User<br/>types a question in the AI Assistant chat"] -->|input: raw text| AGENT
+
+    subgraph AI["AI Assistant (ai_assistant.py)"]
+        AGENT["Agent<br/>answer_question() — intent matcher"]
+        RET["Retriever<br/>build_knowledge_base() +<br/>retrieve_relevant_chunks()"]
+        GUARD["Guardrail<br/>try/except wrapper"]
+    end
+
+    subgraph APP["Core App State (pawpal_system.py)"]
+        DATA[("Owner / Pet / Scheduler<br/>live session data")]
+    end
+
+    AGENT -->|"intent recognized<br/>(pending, conflicts, schedule, pet name...)"| DATA
+    AGENT -->|no intent recognized| RET
+    RET -->|reads current state| DATA
+    DATA -->|method results, e.g. get_pending_tasks| AGENT
+    RET -->|best-matching chunk + relevance score| AGENT
+
+    AGENT -->|formulated answer| GUARD
+    GUARD -->|output: chat response| U
+    GUARD -.->|logs question, answer, exceptions| LOG[("pawpal.log")]
+
+    subgraph CHECK["Human & Automated Checks"]
+        TESTER["Tester<br/>pytest: test_pawpal.py (Scheduler/Owner/Pet),<br/>test_ai_assistant.py (Agent/Retriever),<br/>test_app.py (full app + guardrails via AppTest)"]
+        EVAL["Evaluator<br/>developer reviews pawpal.log +<br/>judges chat answers for accuracy"]
+    end
+
+    DATA -.->|covered by| TESTER
+    AGENT -.->|covered by| TESTER
+    RET -.->|covered by| TESTER
+    GUARD -.->|covered by| TESTER
+    LOG -->|inspected by| EVAL
+    U -.->|reads & judges the answer| EVAL
