@@ -330,6 +330,36 @@ def test_rule_based_action_add_pet_asks_for_missing_fields():
     assert len(owner.pets) == 0  # nothing was added
 
 
+def test_rule_based_action_add_pet_rejects_non_numeric_age_or_weight():
+    owner = Owner(name="Jordan", email="jordan@email.com", phone="555-0100")
+    session_state = FakeSessionState(owner=owner)
+    result = ai_assistant.handle_chat_message(
+        "add pet name=Rex species=Dog breed=Labrador age=young weight=chunky", session_state
+    )
+    assert "number" in result.lower()
+    assert len(owner.pets) == 0  # rejected, not added
+
+
+def test_gemini_action_add_pet_rejects_non_numeric_age_or_weight(monkeypatch):
+    monkeypatch.setattr(ai_assistant, "_get_gemini_api_key", lambda: "fake-key-123")
+    owner = Owner(name="Jordan", email="jordan@email.com", phone="555-0100")
+    session_state = FakeSessionState(owner=owner)
+
+    fn_call = make_fake_function_call(
+        "add_pet", {"name": "Rex", "species": "Dog", "breed": "Labrador", "age": "young", "weight": "chunky"}
+    )
+    fake_client = MagicMock()
+    fake_client.models.generate_content.return_value = make_fake_gemini_response(function_call=fn_call)
+    monkeypatch.setattr(google.genai, "Client", MagicMock(return_value=fake_client))
+
+    result = ai_assistant.handle_chat_message(
+        "Add a pet named Rex, he's a young Labrador and kind of chunky.", session_state
+    )
+
+    assert "number" in result.lower()
+    assert len(owner.pets) == 0  # rejected, not added
+
+
 def test_rule_based_action_add_pet_without_owner():
     session_state = FakeSessionState(owner=None)
     result = ai_assistant.handle_chat_message(

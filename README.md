@@ -300,7 +300,7 @@ The app logs key actions (owner/pet/task creation, task completion, rejected inv
 
 **Automated tests:** `tests/test_ai_assistant.py` has 43 unit tests calling `answer_question()`/`handle_chat_message()`/`retrieve_relevant_chunks()` directly — every Q&A intent (owner info, pet list, conflicts, schedule, pending/completed per pet, aggregate totals), edge cases (no owner, no pets, a pet with no tasks), the retrieval fallback (both a real match and a genuinely irrelevant query), a guardrail test asserting the assistant never raises or returns an empty string on degenerate input (`""`, whitespace, punctuation-only, emoji, a 500-character string), the Gemini/rule-based dispatch logic, and the agentic actions — both the rule-based structured-command parser and Gemini function calling (mocked, including an unrecognized-function case and a Gemini-unreachable-mid-action case), verifying each action actually mutates `Owner`/`Pet`/`Task` state correctly. `tests/test_app.py` adds 9 full-UI tests via Streamlit's `AppTest` (including 3 that drive an actual add-owner/add-pet/add-task conversation through the real running app, not just the underlying functions). Combined with the original `tests/test_pawpal.py` (12 tests for sorting, recurrence, and conflict detection), the full suite is:
 
-> **64 of 64 automated tests pass.** Writing them surfaced two real bugs. First, the tokenizer glued possessive `'s` onto words (e.g. "Mochi's" → one token `"mochi's"`), which silently broke pet-name recognition for natural phrasing like *"What are Mochi's tasks?"* — fixed (dropped apostrophes from the token pattern) and covered by a dedicated regression test. Second, adding real agentic actions surfaced that Gemini's plain-text answers were sometimes reciting the retrieved context nearly verbatim rather than conversationally — fixed by strengthening the system prompt, and verified with a real (non-mocked) call to the live API rather than just trusting the prompt wording. No tests are currently failing.
+> **66 of 66 automated tests pass.** Writing them surfaced two real bugs. First, the tokenizer glued possessive `'s` onto words (e.g. "Mochi's" → one token `"mochi's"`), which silently broke pet-name recognition for natural phrasing like *"What are Mochi's tasks?"* — fixed (dropped apostrophes from the token pattern) and covered by a dedicated regression test. Second, adding real agentic actions surfaced that Gemini's plain-text answers were sometimes reciting the retrieved context nearly verbatim rather than conversationally — fixed by strengthening the system prompt, and verified with a real (non-mocked) call to the live API rather than just trusting the prompt wording. A later self-audit also found that the age/weight numeric validation in `_do_add_pet` had no dedicated test for its failure path (rejecting non-numeric values) — closed with `test_rule_based_action_add_pet_rejects_non_numeric_age_or_weight` and its Gemini-mode counterpart. No tests are currently failing.
 
 **Confidence scoring:** the retrieval fallback computes a lexical relevance score (count of overlapping words) for the best-matching chunk and logs it (`pawpal.log`) with every fallback answer. A score of 0 means nothing in the app's data was relevant, in which case the assistant admits that instead of guessing; a score above 0 means it found and returned real matching data.
 
@@ -454,7 +454,7 @@ Full automated test suite, run fresh (`pytest -v`), current as of the agentic-ac
 platform win32 -- Python 3.14.5, pytest-9.0.3, pluggy-1.6.0
 rootdir: C:\Users\sajja\Downloads\applied-ai-system-project
 plugins: anyio-4.13.0, cov-7.1.0
-collecting ... collected 64 items
+collecting ... collected 66 items
 
 tests/test_ai_assistant.py::test_answers_gracefully_when_no_owner_exists PASSED [  1%]
 tests/test_ai_assistant.py::test_answers_gracefully_when_owner_has_no_pets PASSED [  3%]
@@ -464,53 +464,55 @@ tests/test_ai_assistant.py::test_owner_intent_returns_contact_info PASSED [  7%]
 tests/test_ai_assistant.py::test_pet_list_intent_lists_all_pets PASSED   [  9%]
 tests/test_ai_assistant.py::test_conflict_intent_reports_no_conflicts PASSED [ 10%]
 tests/test_ai_assistant.py::test_conflict_intent_reports_actual_conflict PASSED [ 12%]
-tests/test_ai_assistant.py::test_schedule_intent_returns_daily_schedule PASSED [ 14%]
+tests/test_ai_assistant.py::test_schedule_intent_returns_daily_schedule PASSED [ 13%]
 tests/test_ai_assistant.py::test_pet_tasks_intent_lists_tasks_for_named_pet PASSED [ 15%]
-tests/test_ai_assistant.py::test_pet_name_recognized_in_possessive_form PASSED [ 17%]
+tests/test_ai_assistant.py::test_pet_name_recognized_in_possessive_form PASSED [ 16%]
 tests/test_ai_assistant.py::test_pet_pending_intent_when_task_incomplete PASSED [ 18%]
-tests/test_ai_assistant.py::test_pet_pending_intent_when_all_caught_up PASSED [ 20%]
+tests/test_ai_assistant.py::test_pet_pending_intent_when_all_caught_up PASSED [ 19%]
 tests/test_ai_assistant.py::test_pet_completed_intent_lists_completed_tasks PASSED [ 21%]
-tests/test_ai_assistant.py::test_pet_completed_intent_when_none_completed PASSED [ 23%]
-tests/test_ai_assistant.py::test_pet_with_no_tasks_reports_that_directly PASSED [ 25%]
-tests/test_ai_assistant.py::test_pending_intent_without_pet_name_totals_across_all_pets PASSED [ 26%]
-tests/test_ai_assistant.py::test_task_word_without_pet_name_lists_every_task PASSED [ 28%]
-tests/test_ai_assistant.py::test_fallback_surfaces_relevant_data_directly_when_no_intent_matches PASSED [ 29%]
-tests/test_ai_assistant.py::test_fallback_gives_guidance_when_nothing_is_relevant PASSED [ 31%]
-tests/test_ai_assistant.py::test_retrieve_relevant_chunks_ranks_by_word_overlap PASSED [ 32%]
-tests/test_ai_assistant.py::test_retrieve_relevant_chunks_returns_zero_score_when_nothing_matches PASSED [ 34%]
-tests/test_ai_assistant.py::test_answer_question_never_raises_on_odd_input PASSED [ 35%]
-tests/test_ai_assistant.py::test_get_gemini_api_key_reads_environment_variable PASSED [ 37%]
-tests/test_ai_assistant.py::test_answer_question_uses_rule_based_path_when_no_key PASSED [ 39%]
-tests/test_ai_assistant.py::test_answer_question_routes_to_gemini_when_key_is_present PASSED [ 40%]
-tests/test_ai_assistant.py::test_gemini_failure_falls_back_to_rule_based_answer PASSED [ 42%]
-tests/test_ai_assistant.py::test_gemini_empty_response_falls_back_to_a_safe_message PASSED [ 43%]
-tests/test_ai_assistant.py::test_rule_based_action_creates_owner PASSED  [ 45%]
-tests/test_ai_assistant.py::test_rule_based_action_create_owner_when_one_already_exists PASSED [ 46%]
-tests/test_ai_assistant.py::test_rule_based_action_adds_pet PASSED       [ 48%]
-tests/test_ai_assistant.py::test_rule_based_action_add_pet_asks_for_missing_fields PASSED [ 50%]
-tests/test_ai_assistant.py::test_rule_based_action_add_pet_without_owner PASSED [ 51%]
-tests/test_ai_assistant.py::test_rule_based_action_adds_task PASSED      [ 53%]
-tests/test_ai_assistant.py::test_rule_based_action_add_task_rejects_invalid_time PASSED [ 54%]
-tests/test_ai_assistant.py::test_rule_based_action_add_task_unknown_pet PASSED [ 56%]
-tests/test_ai_assistant.py::test_handle_chat_message_falls_through_to_normal_qa_when_not_an_action PASSED [ 57%]
-tests/test_ai_assistant.py::test_gemini_action_add_pet_executes_and_mutates_state PASSED [ 59%]
-tests/test_ai_assistant.py::test_gemini_action_add_task_executes_and_mutates_state PASSED [ 60%]
-tests/test_ai_assistant.py::test_gemini_action_create_owner_executes_and_mutates_state PASSED [ 62%]
-tests/test_ai_assistant.py::test_gemini_plain_question_still_returns_text_not_an_action PASSED [ 64%]
-tests/test_ai_assistant.py::test_gemini_unrecognized_function_falls_back_to_rule_based PASSED [ 65%]
-tests/test_ai_assistant.py::test_gemini_failure_during_action_turn_falls_back_to_rule_based_action PASSED [ 67%]
-tests/test_app.py::test_app_loads_without_exceptions PASSED              [ 68%]
-tests/test_app.py::test_end_to_end_owner_pet_task_workflow PASSED        [ 70%]
-tests/test_app.py::test_invalid_task_time_is_rejected_without_crashing PASSED [ 71%]
-tests/test_app.py::test_valid_task_time_is_accepted_after_a_rejection PASSED [ 73%]
+tests/test_ai_assistant.py::test_pet_completed_intent_when_none_completed PASSED [ 22%]
+tests/test_ai_assistant.py::test_pet_with_no_tasks_reports_that_directly PASSED [ 24%]
+tests/test_ai_assistant.py::test_pending_intent_without_pet_name_totals_across_all_pets PASSED [ 25%]
+tests/test_ai_assistant.py::test_task_word_without_pet_name_lists_every_task PASSED [ 27%]
+tests/test_ai_assistant.py::test_fallback_surfaces_relevant_data_directly_when_no_intent_matches PASSED [ 28%]
+tests/test_ai_assistant.py::test_fallback_gives_guidance_when_nothing_is_relevant PASSED [ 30%]
+tests/test_ai_assistant.py::test_retrieve_relevant_chunks_ranks_by_word_overlap PASSED [ 31%]
+tests/test_ai_assistant.py::test_retrieve_relevant_chunks_returns_zero_score_when_nothing_matches PASSED [ 33%]
+tests/test_ai_assistant.py::test_answer_question_never_raises_on_odd_input PASSED [ 34%]
+tests/test_ai_assistant.py::test_get_gemini_api_key_reads_environment_variable PASSED [ 36%]
+tests/test_ai_assistant.py::test_answer_question_uses_rule_based_path_when_no_key PASSED [ 37%]
+tests/test_ai_assistant.py::test_answer_question_routes_to_gemini_when_key_is_present PASSED [ 39%]
+tests/test_ai_assistant.py::test_gemini_failure_falls_back_to_rule_based_answer PASSED [ 40%]
+tests/test_ai_assistant.py::test_gemini_empty_response_falls_back_to_a_safe_message PASSED [ 42%]
+tests/test_ai_assistant.py::test_rule_based_action_creates_owner PASSED  [ 43%]
+tests/test_ai_assistant.py::test_rule_based_action_create_owner_when_one_already_exists PASSED [ 45%]
+tests/test_ai_assistant.py::test_rule_based_action_adds_pet PASSED       [ 46%]
+tests/test_ai_assistant.py::test_rule_based_action_add_pet_asks_for_missing_fields PASSED [ 48%]
+tests/test_ai_assistant.py::test_rule_based_action_add_pet_rejects_non_numeric_age_or_weight PASSED [ 50%]
+tests/test_ai_assistant.py::test_gemini_action_add_pet_rejects_non_numeric_age_or_weight PASSED [ 51%]
+tests/test_ai_assistant.py::test_rule_based_action_add_pet_without_owner PASSED [ 53%]
+tests/test_ai_assistant.py::test_rule_based_action_adds_task PASSED      [ 54%]
+tests/test_ai_assistant.py::test_rule_based_action_add_task_rejects_invalid_time PASSED [ 56%]
+tests/test_ai_assistant.py::test_rule_based_action_add_task_unknown_pet PASSED [ 57%]
+tests/test_ai_assistant.py::test_handle_chat_message_falls_through_to_normal_qa_when_not_an_action PASSED [ 59%]
+tests/test_ai_assistant.py::test_gemini_action_add_pet_executes_and_mutates_state PASSED [ 60%]
+tests/test_ai_assistant.py::test_gemini_action_add_task_executes_and_mutates_state PASSED [ 62%]
+tests/test_ai_assistant.py::test_gemini_action_create_owner_executes_and_mutates_state PASSED [ 63%]
+tests/test_ai_assistant.py::test_gemini_plain_question_still_returns_text_not_an_action PASSED [ 65%]
+tests/test_ai_assistant.py::test_gemini_unrecognized_function_falls_back_to_rule_based PASSED [ 66%]
+tests/test_ai_assistant.py::test_gemini_failure_during_action_turn_falls_back_to_rule_based_action PASSED [ 68%]
+tests/test_app.py::test_app_loads_without_exceptions PASSED              [ 69%]
+tests/test_app.py::test_end_to_end_owner_pet_task_workflow PASSED        [ 71%]
+tests/test_app.py::test_invalid_task_time_is_rejected_without_crashing PASSED [ 72%]
+tests/test_app.py::test_valid_task_time_is_accepted_after_a_rejection PASSED [ 74%]
 tests/test_app.py::test_ai_assistant_opens_and_stays_open_across_chat_submission PASSED [ 75%]
-tests/test_app.py::test_ai_assistant_closes_only_via_close_button PASSED [ 76%]
+tests/test_app.py::test_ai_assistant_closes_only_via_close_button PASSED [ 77%]
 tests/test_app.py::test_ai_assistant_can_add_a_pet_via_chat PASSED       [ 78%]
-tests/test_app.py::test_ai_assistant_can_add_a_task_via_chat PASSED      [ 79%]
+tests/test_app.py::test_ai_assistant_can_add_a_task_via_chat PASSED      [ 80%]
 tests/test_app.py::test_ai_assistant_can_create_owner_via_chat_when_none_exists PASSED [ 81%]
-tests/test_pawpal.py::test_mark_complete_changes_status PASSED           [ 82%]
+tests/test_pawpal.py::test_mark_complete_changes_status PASSED           [ 83%]
 tests/test_pawpal.py::test_add_task_increases_pet_task_count PASSED      [ 84%]
-tests/test_pawpal.py::test_sort_by_time_orders_chronologically PASSED    [ 85%]
+tests/test_pawpal.py::test_sort_by_time_orders_chronologically PASSED    [ 86%]
 tests/test_pawpal.py::test_sort_by_time_handles_midnight_and_noon_boundary PASSED [ 87%]
 tests/test_pawpal.py::test_sort_by_time_does_not_mutate_original_list PASSED [ 89%]
 tests/test_pawpal.py::test_complete_daily_task_creates_next_day_occurrence PASSED [ 90%]
@@ -525,7 +527,7 @@ tests/test_pawpal.py::test_detect_conflicts_returns_empty_when_no_overlap PASSED
 google/genai/types.py:42
   DeprecationWarning: '_UnionGenericAlias' is deprecated and slated for removal in Python 3.17 (harmless, from the google-genai package itself, not this project's code)
 
-============================= 64 passed in 4.87s ==============================
+============================= 66 passed in 4.14s ==============================
 ```
 
 Guardrail check — this is `tests/test_app.py::test_invalid_task_time_is_rejected_without_crashing` and `test_valid_task_time_is_accepted_after_a_rejection`, shown here run standalone against the live app via Streamlit's `AppTest` harness for a clearer before/after view (submitting an invalid time, then a valid one):
