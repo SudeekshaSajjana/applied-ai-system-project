@@ -1,4 +1,16 @@
+import pytest
 from streamlit.testing.v1 import AppTest
+
+import ai_assistant
+
+
+@pytest.fixture(autouse=True)
+def force_rule_based_ai_assistant(monkeypatch):
+    """These tests exercise the app end-to-end and expect the deterministic
+    rule-based assistant answers regardless of any real GEMINI_API_KEY
+    configured on the machine running them (env var or .streamlit/secrets.toml).
+    """
+    monkeypatch.setattr(ai_assistant, "_get_gemini_api_key", lambda: None)
 
 
 def _launch():
@@ -93,7 +105,7 @@ def test_ai_assistant_opens_and_stays_open_across_chat_submission():
     assert at.session_state["ai_chat_open"] is True
 
     messages = [m.markdown[0].value for m in at.chat_message if m.markdown]
-    assert "Mochi's tasks" in messages[-1]
+    assert "Mochi" in messages[-1] and "Morning walk" in messages[-1]
 
 
 def test_ai_assistant_closes_only_via_close_button():
@@ -107,3 +119,51 @@ def test_ai_assistant_closes_only_via_close_button():
 
     next(b for b in at.button if b.key == "ai_close_btn").click().run(timeout=30)
     assert at.session_state["ai_chat_open"] is False
+
+
+# --- AI Assistant: agentic actions performed through the real, running app ---
+
+def test_ai_assistant_can_add_a_pet_via_chat():
+    at = _launch()
+    _create_owner(at)
+
+    next(b for b in at.button if b.key == "ai_launcher_btn").click().run(timeout=30)
+    at.chat_input[0].set_value(
+        "add pet name=Rex species=Dog breed=Labrador age=3 weight=60"
+    ).run(timeout=30)
+
+    assert not at.exception
+    owner = at.session_state["owner"]
+    assert len(owner.pets) == 1
+    assert owner.pets[0].name == "Rex"
+    messages = [m.markdown[0].value for m in at.chat_message if m.markdown]
+    assert "Rex" in messages[-1]
+
+
+def test_ai_assistant_can_add_a_task_via_chat():
+    at = _launch()
+    _create_owner(at)
+    _add_pet(at)
+
+    next(b for b in at.button if b.key == "ai_launcher_btn").click().run(timeout=30)
+    at.chat_input[0].set_value(
+        'add task pet=Mochi description="Feed dinner" time="6:00 PM" frequency=daily'
+    ).run(timeout=30)
+
+    assert not at.exception
+    pet = at.session_state["owner"].pets[0]
+    assert any(t.description == "Feed dinner" for t in pet.tasks)
+
+
+def test_ai_assistant_can_create_owner_via_chat_when_none_exists():
+    at = _launch()
+
+    next(b for b in at.button if b.key == "ai_launcher_btn").click().run(timeout=30)
+    at.chat_input[0].set_value(
+        "create owner name=Sarah email=sarah@email.com phone=555-1234"
+    ).run(timeout=30)
+
+    assert not at.exception
+    owner = at.session_state["owner"]
+    assert owner is not None
+    assert owner.name == "Sarah"

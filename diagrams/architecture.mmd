@@ -1,10 +1,24 @@
 flowchart TD
-    U["User<br/>types a question in the AI Assistant chat"] -->|input: raw text| AGENT
+    U["User<br/>types a message in the AI Assistant chat"] -->|input: raw text| HANDLER["handle_chat_message()<br/>main entry point"]
+
+    HANDLER --> KEYCHECK{"GEMINI_API_KEY<br/>configured?"}
+
+    KEYCHECK -->|no - default| RBACTION{"_try_rule_based_action()<br/>matches a structured command?"}
+    KEYCHECK -->|yes| GEMINI
+
+    RBACTION -->|yes, e.g. 'add pet name=...'| ACTION
+    RBACTION -->|no| AGENT
 
     subgraph AI["AI Assistant (ai_assistant.py)"]
-        AGENT["Agent<br/>answer_question() — intent matcher"]
+        AGENT["Agent<br/>answer_question_rule_based() — intent matcher"]
         RET["Retriever<br/>build_knowledge_base() +<br/>retrieve_relevant_chunks()"]
+        GEMINI["Gemini Turn<br/>_gemini_turn() — RAG + function calling"]
+        ACTION["Action Executor<br/>_do_create_owner / _do_add_pet / _do_add_task"]
         GUARD["Guardrail<br/>try/except wrapper"]
+    end
+
+    subgraph EXTERNAL["External Model"]
+        GEMINIAPI[/"Gemini API<br/>(gemini-flash-lite-latest)<br/>+ function-calling tools"/]
     end
 
     subgraph APP["Core App State (pawpal_system.py)"]
@@ -17,18 +31,31 @@ flowchart TD
     DATA -->|method results, e.g. get_pending_tasks| AGENT
     RET -->|best-matching chunk + relevance score| AGENT
 
+    GEMINI -->|retrieves top-6 relevant chunks| RET
+    GEMINI -->|context + question + available tools| GEMINIAPI
+    GEMINIAPI -->|"text answer, OR a function call<br/>(create_owner/add_pet/add_task + args)"| GEMINI
+    GEMINI -->|function call decided| ACTION
+    GEMINI -.->|"on failure: bad key, network,<br/>package missing, empty response"| AGENT
+
+    ACTION -->|"writes: creates Owner / adds Pet / adds Task"| DATA
+    RBACTION -.->|reuses the same handlers| ACTION
+
     AGENT -->|formulated answer| GUARD
+    GEMINI -->|formulated answer| GUARD
+    ACTION -->|confirmation message| GUARD
     GUARD -->|output: chat response| U
-    GUARD -.->|logs question, answer, exceptions| LOG[("pawpal.log")]
+    GUARD -.->|logs question, answer, action, exceptions| LOG[("pawpal.log")]
 
     subgraph CHECK["Human & Automated Checks"]
-        TESTER["Tester<br/>pytest: test_pawpal.py (Scheduler/Owner/Pet),<br/>test_ai_assistant.py (Agent/Retriever),<br/>test_app.py (full app + guardrails via AppTest)"]
-        EVAL["Evaluator<br/>developer reviews pawpal.log +<br/>judges chat answers for accuracy"]
+        TESTER["Tester<br/>pytest: test_pawpal.py (Scheduler/Owner/Pet),<br/>test_ai_assistant.py (Agent/Retriever/Actions + mocked Gemini),<br/>test_app.py (full app + guardrails + actions via AppTest)"]
+        EVAL["Evaluator<br/>developer reviews pawpal.log +<br/>judges chat answers/actions for accuracy"]
     end
 
     DATA -.->|covered by| TESTER
     AGENT -.->|covered by| TESTER
     RET -.->|covered by| TESTER
+    GEMINI -.->|covered by| TESTER
+    ACTION -.->|covered by| TESTER
     GUARD -.->|covered by| TESTER
     LOG -->|inspected by| EVAL
     U -.->|reads & judges the answer| EVAL

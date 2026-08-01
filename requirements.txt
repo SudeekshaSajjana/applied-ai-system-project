@@ -1,3 +1,4 @@
 streamlit>=1.32
 pytest>=7.0
 pytest-cov>=4.0
+google-genai>=1.0.0
